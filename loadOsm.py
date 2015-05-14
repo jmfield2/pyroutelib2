@@ -39,17 +39,32 @@ class LoadOsm:
     """Initialise an OSM-file parser"""
     self.routing = {}
     self.rnodes = {}
+    self.ways = {}
     self.transport = transport
     self.tiles = {}
     self.weights = weights.RoutingWeights()
     self.api = osmapi.OsmApi(api="api.openstreetmap.org")
-  
+
+  def distance(self,n1,n2):
+    """Calculate distance between two nodes"""
+    lat1 = float(n1[0]) * math.pi/180
+    lon1 = float(n1[1]) * math.pi/180
+    lat2 = float(n2[0]) * math.pi/180
+    lon2 = float(n2[1]) * math.pi/180
+    # TODO: projection issues
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    dist2 = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon/2))**2
+    dist2 = 2 * math.asin( math.sqrt(dist2) )
+    dist = 6371000 * dist2 # meters
+    return(dist)
+ 
   def getArea(self, lat, lon):
     """Download data in the vicinity of a lat/long.
     Return filename to existing or newly downloaded .osm file."""
     
     z = tiledata.DownloadLevel()
-    (x,y) = tilenames.tileXY(lat, lon, z)
+    (x,y) = tilenames.tileXY(float(lat), float(lon), z)
 
     tileID = '%d,%d'%(x,y)
     if(self.tiles.get(tileID,False)):
@@ -195,15 +210,33 @@ class LoadOsm:
     nodeFound = None
     posFound = None
     for (node_id,pos) in list(self.rnodes.items()):
-      dy = pos[0] - lat
-      dx = pos[1] - lon
+      dy = float(pos[0]) - lat
+      dx = float(pos[1]) - lon
       dist = dx * dx + dy * dy
-      if(dist < maxDist):
+
+      if(dist < maxDist and not self.is_disconnected(node_id)):
         maxDist = dist
         nodeFound = node_id
         posFound = pos
     # print("found at %s"%str(posFound))
     return(nodeFound)
+
+  def findNodes(self,lat,lon):
+    """Find the nearest node that can be the start of a route"""
+    self.getArea(lat,lon)
+    maxDist = 20 # meters 
+    nodes = {}
+    for (node_id,pos) in list(self.rnodes.items()):
+      dy = float(pos[0]) - lat
+      dx = float(pos[1]) - lon
+      dist = self.distance(pos, [lat, lon])
+      if(dist < maxDist):
+	nodes[node_id] = dist #"%s,%s" % (self.rnodes[node_id][0], self.rnodes[node_id][1])] = dist
+    # print("found at %s"%str(posFound))
+    import operator
+    n_x = sorted(nodes.items(), key=operator.itemgetter(1))
+    return(dict(n_x))
+
       
   def report(self):
     """Display some info about the loaded data"""

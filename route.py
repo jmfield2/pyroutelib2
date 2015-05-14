@@ -37,15 +37,16 @@ class Router:
     self.data = data
   def distance(self,n1,n2):
     """Calculate distance between two nodes"""
-    lat1 = self.data.rnodes[n1][0]
-    lon1 = self.data.rnodes[n1][1]
-    lat2 = self.data.rnodes[n2][0]
-    lon2 = self.data.rnodes[n2][1]
+    lat1 = float(self.data.rnodes[n1][0]) * math.pi/180
+    lon1 = float(self.data.rnodes[n1][1]) * math.pi/180
+    lat2 = float(self.data.rnodes[n2][0]) * math.pi/180
+    lon2 = float(self.data.rnodes[n2][1]) * math.pi/180
     # TODO: projection issues
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    dist2 = dlat * dlat + dlon * dlon
-    dist = math.sqrt(dist2)
+    dist2 = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon/2))**2
+    dist2 = 2 * math.asin( math.sqrt(dist2) )
+    dist = 6371000 * dist2 # meters
     return(dist)
   
   def doRoute(self,start,end):
