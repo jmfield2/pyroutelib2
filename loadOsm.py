@@ -136,6 +136,14 @@ class LoadOsm:
     railway = self.equivalent(tags.get('railway', ''))
     oneway = tags.get('oneway', '')
     reversible = not oneway in('yes','true','1')
+    parking = tags.get('amenity', 'None')
+    building = tags.get('building', 'no')
+
+    if len(parking) > 0 and parking in ('parking'):
+      if self.transport == 'foot': highway = 'footway'
+      elif self.transport == 'car': highway = 'unclassified'
+    if len(building) > 0 and building in ('yes'):
+      if self.transport == 'foot': highway = 'footway'
 
     # Calculate what vehicles can use this route
     # TODO: just use getWeight != 0
@@ -143,8 +151,8 @@ class LoadOsm:
     access['cycle'] = highway in ('primary','secondary','tertiary','unclassified','minor','cycleway','residential', 'track','service')
     access['car'] = highway in ('motorway','trunk','primary','secondary','tertiary','unclassified','minor','residential', 'service')
     access['train'] = railway in('rail','light_rail','subway')
-    access['foot'] = access['cycle'] or highway in('footway','steps')
     access['horse'] = highway in ('track','unclassified','bridleway')
+    access['foot'] = access['cycle'] or highway in('footway','steps','landing') 
 
     # Store routing information
     last = [None,None,None]
