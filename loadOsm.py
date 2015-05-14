@@ -210,7 +210,25 @@ class LoadOsm:
       return(equivalent[tag])
     except KeyError:
       return(tag)
-    
+
+  def is_disconnected(self, node):
+  	""" Checks 'connectedness' of node to the rest of the graph...does a simple BFS end within X iterations? """
+  	if node not in self.routing: return False
+  	q = [node]
+  	v = set(node)
+  	cnt = 0
+  	while len(q) > 0 and cnt < 50:
+  		cnt += 1
+  		nd = q.pop(0)
+  		for x in self.routing[nd].keys():
+  			if x not in self.routing: continue
+  			if x in v: continue
+  			q.append(x)
+  			v.add(x)
+
+  	if len(v) <= 20: return True
+  	return False
+
   def findNode(self,lat,lon):
     """Find the nearest node that can be the start of a route"""
     self.getArea(lat,lon)
