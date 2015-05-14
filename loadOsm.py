@@ -25,6 +25,7 @@
 import os
 import re
 import sys
+import math
 import osmapi
 
 # from pyroutelib2 import (tiledata, tilenames, weights)
@@ -65,7 +66,7 @@ class LoadOsm:
       print("No such data file %s" % filename)
       return(False)
 
-    nodes, ways = {}, {}
+    nodes, self.ways = {}, {}
 
     with open(filename, "r") as fp:
       osm_xml = fp.read()
@@ -73,7 +74,24 @@ class LoadOsm:
       print("No data read from {}".format(filename))
       return(False)
 
-    data = self.api.ParseOsm(osm_xml)
+    #data = self.api.ParseOsm(osm_xml) # minidom sucks
+    from lxml import etree
+    tree = etree.parse(open(filename, "r+"))
+    root = tree.getroot()
+    result = []
+
+    for line in root:
+    	if line.tag == "node":
+                result.append({u"type": line.tag, u"data": line.attrib})		
+	elif line.tag == "way":
+		d = dict(line.attrib)
+		d['nd'] = [x.attrib['ref'] for x in line.findall('nd')]
+		d['tag'] = {x.attrib['k']: x.attrib['v'] for x in line.findall('tag')}
+                result.append({u"type": line.tag, u"data": d})
+	elif line.tag == "relation":
+                result.append({u"type": line.tag, u"data": line.attrib})
+
+    data = result
     # data = [{ type: node|way|relation, data: {}},...]
 
     for x in data:
@@ -81,21 +99,21 @@ class LoadOsm:
         if x['type'] == 'node':
           nodes[x['data']['id']] = x['data']
         elif x['type'] == 'way':
-          ways[x['data']['id']] = x['data']
+          self.ways[x['data']['id']] = x['data']
         else:
           continue
       except KeyError:
         # Don't care about bad data (no type/data key)
         continue
     #end for x in data
-    for way_id, way_data in ways.items():
+    for way_id, way_data in self.ways.items():
       way_nodes = []
       for nd in way_data['nd']:
         if nd not in nodes:
           continue
         way_nodes.append([nodes[nd]['id'], nodes[nd]['lat'], nodes[nd]['lon']])
       self.storeWay(way_id, way_data['tag'], way_nodes)
-      
+
     return(True)
   
   def storeWay(self, wayID, tags, nodes):
