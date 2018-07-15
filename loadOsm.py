@@ -33,17 +33,22 @@ import tiledata
 import tilenames
 import weights
 
+import networkx as nx
+
 class LoadOsm:
   """Parse an OSM file looking for routing information, and do routing with it"""
   def __init__(self, transport):
     """Initialise an OSM-file parser"""
     self.routing = {}
+    self.nodes = {}
     self.rnodes = {}
     self.ways = {}
     self.transport = transport
     self.tiles = {}
     self.weights = weights.RoutingWeights()
     self.api = osmapi.OsmApi(api="api.openstreetmap.org")
+    self.G = nx.DiGraph()
+    self.way_nodes = {}
 
   def distance(self,n1,n2):
     """Calculate distance between two nodes"""
@@ -81,7 +86,7 @@ class LoadOsm:
       print("No such data file %s" % filename)
       return(False)
 
-    nodes, self.ways = {}, {}
+    self.nodes, self.ways = {}, {}
 
     with open(filename, "r") as fp:
       osm_xml = fp.read()
@@ -97,7 +102,10 @@ class LoadOsm:
 
     for line in root:
     	if line.tag == "node":
-                result.append({u"type": line.tag, u"data": line.attrib})		
+		d = dict(line.attrib)
+		d['tags'] = {x.attrib['k']: x.attrib['v'] for x in line.findall('tag')}
+                result.append({u"type": line.tag, u"data": d})		
+
 	elif line.tag == "way":
 		d = dict(line.attrib)
 		d['nd'] = [x.attrib['ref'] for x in line.findall('nd')]
@@ -112,9 +120,11 @@ class LoadOsm:
     for x in data:
       try:
         if x['type'] == 'node':
-          nodes[x['data']['id']] = x['data']
+          self.nodes[x['data']['id']] = x['data']
+	  self.G.add_node(x['data']['id'])
         elif x['type'] == 'way':
           self.ways[x['data']['id']] = x['data']
+
         else:
           continue
       except KeyError:
@@ -124,9 +134,10 @@ class LoadOsm:
     for way_id, way_data in self.ways.items():
       way_nodes = []
       for nd in way_data['nd']:
-        if nd not in nodes:
+        if nd not in self.nodes:
           continue
-        way_nodes.append([nodes[nd]['id'], nodes[nd]['lat'], nodes[nd]['lon']])
+        way_nodes.append([self.nodes[nd]['id'], self.nodes[nd]['lat'], self.nodes[nd]['lon']])
+        self.way_nodes[self.nodes[nd]['id']] = way_data
       self.storeWay(way_id, way_data['tag'], way_nodes)
 
     return(True)
@@ -165,10 +176,14 @@ class LoadOsm:
       if last[0]:
         if(access[self.transport]):
           weight = self.weights.get(self.transport, highway)
+
+	  dist = self.distance([x,y], [last[1],last[2]])
           self.addLink(last[0], node_id, weight)
           self.makeNodeRouteable(last)
+	  self.G.add_edge(last[0], node_id, weight=dist)
           if reversible or self.transport == 'foot':
             self.addLink(node_id, last[0], weight)
+	    self.G.add_edge(node_id, last[0], weight=dist)
             self.makeNodeRouteable(node)
       last = node
 
@@ -213,11 +228,11 @@ class LoadOsm:
 
   def is_disconnected(self, node):
   	""" Checks 'connectedness' of node to the rest of the graph...does a simple BFS end within X iterations? """
-  	if node not in self.routing: return False
+  	if node not in self.routing: return True
   	q = [node]
   	v = set(node)
   	cnt = 0
-  	while len(q) > 0 and cnt < 50:
+  	while len(q) > 0 and cnt < 70:
   		cnt += 1
   		nd = q.pop(0)
   		for x in self.routing[nd].keys():
@@ -226,41 +241,62 @@ class LoadOsm:
   			q.append(x)
   			v.add(x)
 
-  	if len(v) <= 20: return True
+  	if len(v) <= 50: return True
   	return False
 
   def findNode(self,lat,lon):
     """Find the nearest node that can be the start of a route"""
-    self.getArea(lat,lon)
+    #self.getArea(lat,lon)
     maxDist = 1E+20
     nodeFound = None
     posFound = None
     for (node_id,pos) in list(self.rnodes.items()):
+
       dy = float(pos[0]) - lat
       dx = float(pos[1]) - lon
       dist = dx * dx + dy * dy
+ 
+      # check node type (building, path) and pick based on dist+weight
+      if 'building' in self.way_nodes[node_id]['tag']:
+      	dist = dist * 1.5
 
       if(dist < maxDist and not self.is_disconnected(node_id)):
         maxDist = dist
         nodeFound = node_id
         posFound = pos
+
     # print("found at %s"%str(posFound))
     return(nodeFound)
 
   def findNodes(self,lat,lon):
     """Find the nearest node that can be the start of a route"""
-    self.getArea(lat,lon)
-    maxDist = 20 # meters 
+    #self.getArea(lat,lon)
+    maxDist = 70 # meters 
     nodes = {}
+    tmpways = {}
     for (node_id,pos) in list(self.rnodes.items()):
       dy = float(pos[0]) - lat
       dx = float(pos[1]) - lon
       dist = self.distance(pos, [lat, lon])
       if(dist < maxDist):
-	nodes[node_id] = dist #"%s,%s" % (self.rnodes[node_id][0], self.rnodes[node_id][1])] = dist
+        way_id = False
+        for x in self.ways:
+            if node_id in self.ways[x]['nd']: way_id = x
+	if way_id not in tmpways: 
+            nodes[node_id] = dist #"%s,%s" % (self.rnodes[node_id][0], self.rnodes[node_id][1])] = dist
+            tmpways[way_id] = [node_id]
+            if way_id == '93588270': print nodes[node_id]
+        elif way_id in tmpways:
+        	if nodes[tmpways[way_id][0]] < dist: continue
+        	del nodes[tmpways[way_id][0]]
+        	nodes[node_id] = dist
+        	tmpways[way_id] = [node_id]	
+	
     # print("found at %s"%str(posFound))
     import operator
     n_x = sorted(nodes.items(), key=operator.itemgetter(1))
+    #print "%s->%s = %d %s" % (lat,lon,len(n_x),self.transport)
+    n_x = n_x[:5]
     return(dict(n_x))
 
       

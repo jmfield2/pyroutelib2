@@ -32,6 +32,8 @@ try:
 except (ImportError, SystemError):
   from loadOsm import *
 
+import networkx as nx
+
 class Router:
   def __init__(self, data):
     self.data = data
@@ -54,7 +56,17 @@ class Router:
     self.searchEnd = end
     closed = [start]
     self.queue = []
-    
+
+    try: 
+    	#rt = nx.dijkstra_path(self.data.G, start, end)
+    	rt = nx.astar_path(self.data.G, start, end)
+    except Exception as m:
+        return ('no_route', [])
+   
+    #d = {'distance':nx.dijkstra_path_length(self.data.G, start, end), 'nodes': rt}
+    d = {'distance':nx.astar_path_length(self.data.G, start, end), 'nodes': rt} 
+    return ('success', [rt, d]) 
+ 
     # Start by queueing all outbound links from the start node
     blankQueueItem = {'end':-1,'distance':0,'nodes':str(start)}
 
@@ -70,7 +82,7 @@ class Router:
     # Limit for how long it will search
     count = 0
     success = []
-    while count < 1000:
+    while count < 5000:
       count = count + 1
       try:
         nextItem = self.queue.pop(0)
@@ -92,7 +104,8 @@ class Router:
         for i, weight in self.data.routing[x].items():
           if not i in closed:
             self.addToQueue(x,i,nextItem, weight)
-     
+            #print x
+ 
       except KeyError as e:
         pass
     
@@ -110,7 +123,7 @@ class Router:
 			n.append( (float(self.data.rnodes[x][0]), float(self.data.rnodes[x][1])) )
 
                 from polyline.codec import PolylineCodec
-		print PolylineCodec().encode(n)
+		#print PolylineCodec().encode(n)
 	
 	return ('gave_up', [])
     else: return ('success', dist[1])
@@ -125,7 +138,7 @@ class Router:
     # the tip of the route, rather than around all nodes linked from the tip
     if end not in self.data.rnodes: return
     end_pos = self.data.rnodes[end]
-    self.data.getArea(end_pos[0], end_pos[1])
+    #self.data.getArea(end_pos[0], end_pos[1])
     
     # If already in queue, ignore
     for test in self.queue:
